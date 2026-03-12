@@ -38,9 +38,18 @@ cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md    # For Claude Code
 chmod +x scripts/ralph/ralph.sh
 ```
 
-### Option 2: Install skills globally (Amp)
+### Option 2: Install skills globally
 
-Copy the skills to your Amp or Claude config for use across all projects:
+Copy the skills to your AI tool config for use across all projects:
+
+For Codex
+```bash
+mkdir -p ~/.agents/skills
+cp -r skills/prd ~/.agents/skills/
+cp -r skills/ralph ~/.agents/skills/
+cp -r skills/init-ralph ~/.agents/skills/
+cp -r skills/browser-verify ~/.agents/skills/
+```
 
 For AMP
 ```bash
@@ -71,6 +80,7 @@ Then install the skills:
 Available skills after installation:
 - `/prd` - Generate Product Requirements Documents
 - `/ralph` - Convert PRDs to prd.json format
+- `browser-verify` - Verify UI changes in a real browser with Playwright
 
 Skills are automatically invoked when you ask Claude to:
 - "create a prd", "write prd for", "plan this feature"
@@ -210,7 +220,7 @@ Ralph only works if there are feedback loops:
 
 ### Browser Verification for UI Stories
 
-Frontend stories must include "Verify in browser using dev-browser skill" in acceptance criteria. Ralph will use the dev-browser skill to navigate to the page, interact with the UI, and confirm changes work.
+Frontend stories must include "Verify in browser using browser-verify skill" in acceptance criteria. Ralph will use the browser-verify skill to navigate to the page, interact with the UI, and confirm changes work.
 
 ### Stop Condition
 

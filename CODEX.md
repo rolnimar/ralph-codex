@@ -80,7 +80,7 @@ Only update AGENTS.md if you have **genuinely reusable knowledge** that would he
 
 ## Browser Testing (If Available)
 
-For any story that changes UI, verify it works in the browser if you have browser testing tools configured:
+For any story that changes UI, verify it works in the browser using the `browser-verify` skill if available:
 
 1. Navigate to the relevant page
 2. Verify the UI changes work as expected

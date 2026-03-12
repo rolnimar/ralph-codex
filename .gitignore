@@ -9,5 +9,8 @@ progress.txt
 # OS files
 .DS_Store
 
+# IDE files
+.idea/
+
 #Claude
 .claude/

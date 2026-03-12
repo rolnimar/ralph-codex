@@ -34,6 +34,60 @@ if [[ "$TOOL" != "amp" && "$TOOL" != "codex" && "$TOOL" != "claude" ]]; then
   exit 1
 fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+PRD_FILE="$SCRIPT_DIR/prd.json"
+PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
+ARCHIVE_DIR="$SCRIPT_DIR/archive"
+LAST_BRANCH_FILE="$SCRIPT_DIR/.last-branch"
+
+TARGET_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || echo "")
+BASE_BRANCH=$(jq -r '.baseBranch // empty' "$PRD_FILE" 2>/dev/null || echo "")
+
+if [ -z "$TARGET_BRANCH" ]; then
+  echo "Error: prd.json must define branchName."
+  exit 1
+fi
+
+if [ -z "$BASE_BRANCH" ]; then
+  echo "Error: prd.json must define baseBranch."
+  exit 1
+fi
+
+if ! git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$BASE_BRANCH"; then
+  echo "Error: baseBranch '$BASE_BRANCH' does not exist locally."
+  exit 1
+fi
+
+WORKTREE_ROOT="$REPO_ROOT/.ralph-worktrees"
+WORKTREE_NAME="${TARGET_BRANCH//\//-}"
+WORKTREE_DIR="$WORKTREE_ROOT/$WORKTREE_NAME"
+
+mkdir -p "$WORKTREE_ROOT"
+
+BRANCH_CHECKED_OUT_ELSEWHERE=""
+while IFS= read -r line; do
+  case "$line" in
+    branch\ refs/heads/$TARGET_BRANCH)
+      BRANCH_CHECKED_OUT_ELSEWHERE="1"
+      ;;
+  esac
+done < <(git -C "$REPO_ROOT" worktree list --porcelain)
+
+if [ ! -d "$WORKTREE_DIR/.git" ]; then
+  if [ -n "$BRANCH_CHECKED_OUT_ELSEWHERE" ] && git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$TARGET_BRANCH"; then
+    echo "Error: target branch '$TARGET_BRANCH' is already checked out in another worktree."
+    echo "Clean up or remove that worktree before rerunning Ralph."
+    exit 1
+  fi
+
+  if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$TARGET_BRANCH"; then
+    git -C "$REPO_ROOT" worktree add "$WORKTREE_DIR" "$TARGET_BRANCH"
+  else
+    git -C "$REPO_ROOT" worktree add -b "$TARGET_BRANCH" "$WORKTREE_DIR" "$BASE_BRANCH"
+  fi
+fi
+
+SCRIPT_DIR="$WORKTREE_DIR"
 PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
 ARCHIVE_DIR="$SCRIPT_DIR/archive"
@@ -80,6 +134,9 @@ if [ ! -f "$PROGRESS_FILE" ]; then
 fi
 
 echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
+echo "Worktree: $WORKTREE_DIR"
+echo "Base branch: $BASE_BRANCH"
+echo "Target branch: $TARGET_BRANCH"
 
 for i in $(seq 1 $MAX_ITERATIONS); do
   echo ""

@@ -1,5 +1,6 @@
 {
   "project": "Your Project",
+  "baseBranch": "programV4",
   "branchName": "ralph/your-feature-name",
   "description": "Brief description of the feature or refactor.",
   "userStories": [

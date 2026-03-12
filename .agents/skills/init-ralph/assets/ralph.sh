@@ -38,6 +38,44 @@ PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
 ARCHIVE_DIR="$SCRIPT_DIR/archive"
 LAST_BRANCH_FILE="$SCRIPT_DIR/.last-branch"
+PROJECT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+
+if [ -z "$PROJECT_ROOT" ]; then
+  if [ -d "$SCRIPT_DIR/../.." ]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  else
+    PROJECT_ROOT="$SCRIPT_DIR"
+  fi
+fi
+
+all_stories_complete() {
+  if [ ! -f "$PRD_FILE" ]; then
+    return 1
+  fi
+
+  jq -e '(.userStories // []) | length > 0 and all(.[]; .passes == true)' "$PRD_FILE" >/dev/null 2>&1
+}
+
+run_with_ralph_context() {
+  local prompt_file="$1"
+  local runtime_cmd="$2"
+  local temp_prompt
+
+  temp_prompt="$(mktemp)"
+  {
+    echo "## Ralph Runtime Context"
+    echo "- Repository root: $PROJECT_ROOT"
+    echo "- Ralph directory: $SCRIPT_DIR"
+    echo "- PRD path: $PRD_FILE"
+    echo "- Progress log path: $PROGRESS_FILE"
+    echo "- Start all code/file operations from the repository root unless a task explicitly requires the Ralph directory."
+    echo
+    cat "$prompt_file"
+  } > "$temp_prompt"
+
+  OUTPUT=$(eval "$runtime_cmd" < "$temp_prompt" 2>&1 | tee /dev/stderr) || true
+  rm -f "$temp_prompt"
+}
 
 # Archive previous run if branch changed
 if [ -f "$PRD_FILE" ] && [ -f "$LAST_BRANCH_FILE" ]; then
@@ -81,6 +119,11 @@ fi
 
 echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
 
+if all_stories_complete; then
+  echo "All stories in $PRD_FILE are already marked complete."
+  exit 0
+fi
+
 for i in $(seq 1 $MAX_ITERATIONS); do
   echo ""
   echo "==============================================================="
@@ -89,22 +132,29 @@ for i in $(seq 1 $MAX_ITERATIONS); do
 
   # Run the selected tool with the ralph prompt
   if [[ "$TOOL" == "amp" ]]; then
-    OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
+    run_with_ralph_context "$SCRIPT_DIR/prompt.md" "cd \"$PROJECT_ROOT\" && amp --dangerously-allow-all"
   elif [[ "$TOOL" == "codex" ]]; then
-    OUTPUT=$(codex exec --dangerously-bypass-approvals-and-sandbox -C "$SCRIPT_DIR" - < "$SCRIPT_DIR/CODEX.md" 2>&1 | tee /dev/stderr) || true
+    run_with_ralph_context "$SCRIPT_DIR/CODEX.md" "codex exec --dangerously-bypass-approvals-and-sandbox -C \"$PROJECT_ROOT\" -"
   else
     # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
-    OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+    run_with_ralph_context "$SCRIPT_DIR/CLAUDE.md" "cd \"$PROJECT_ROOT\" && claude --dangerously-skip-permissions --print"
   fi
 
-  # Check for completion signal
-  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+  # Only stop when the PRD confirms all stories are complete.
+  if all_stories_complete; then
     echo ""
     echo "Ralph completed all tasks!"
     echo "Completed at iteration $i of $MAX_ITERATIONS"
     exit 0
   fi
 
+  # Warn if the agent claimed completion but the PRD still has pending work.
+  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+    echo ""
+    echo "Warning: agent reported completion, but pending stories remain in $PRD_FILE."
+    echo "Continuing to next iteration."
+  fi
+  
   echo "Iteration $i complete. Continuing..."
   sleep 2
 done
